@@ -407,6 +407,8 @@ html,body{
     <!-- 상단: 대국 정보 -->
     <div class="lnb-head">
       <div class="lnb-htitle">대국 정보</div>
+      <div class="kata-log" style="font-size:.65rem;color:#666;text-align:center;margin-bottom:4px;min-height:14px;"></div>
+      <div class="kata-log" style="font-size:.6rem;color:#888;text-align:center;margin-bottom:4px;min-height:14px;"></div>
       <div class="srow" id="srow-b">
         <div class="sc sc-b"></div>
         <div class="sinfo">
@@ -590,7 +592,7 @@ function syncLNB(){
 }
 
 /* ── 레벨 ── */
-const LVN=['','입문1','입문2','초급1','초급2','중급1','중급2','고급1','고급2','상급1','상급2'];
+const LVN=['','초보','15급','12급','10급','8급','5급','3급','1급','초단','2단'];
 let selLv=5,selSz=19;
 (function(){
   const g=document.getElementById('level-grid');
@@ -650,26 +652,370 @@ class GoGame{
   }
 }
 
-/* ════════ AI ════════ */
-function aiMove(game,col,lv){
-  const legal=game.legalMoves(col);if(!legal.length)return -1;
-  if(lv<=2)return legal[Math.random()*legal.length|0];
+/* ════════════════════════════════════════════════
+   AI — Web Worker (Blob URL)
+   메인 스레드를 전혀 블로킹하지 않음
+   레벨 1  : 룰 아는 초보
+   레벨 2-10 : MCTS (시뮬 수 증가)
+════════════════════════════════════════════════ */
+
+const WORKER_CODE = `
+/* ═════════════════════════════════════════
+   Flat MCTS + RAVE  (19x19, 초고속)
+   롤아웃: BFS 없이 O(1) 이웃 체크만
+   RAVE  : 롤아웃 수 재사용 → 3-4배 강화
+═════════════════════════════════════════ */
+const SZ=19, N=SZ*SZ;
+
+/* 인접 미리계산 */
+const NB=[];
+for(let i=0;i<N;i++){
+  const r=i/SZ|0,c=i%SZ,a=[];
+  if(r>0)a.push(i-SZ);if(r<SZ-1)a.push(i+SZ);
+  if(c>0)a.push(i-1);if(c<SZ-1)a.push(i+1);
+  NB.push(a);
+}
+
+/* BFS 자유도 (후보 평가용만, 롤아웃 X) */
+function grpLibs(b,pos){
+  const col=b[pos];if(!col)return 0;
+  const vis=new Uint8Array(N),stk=[pos];vis[pos]=1;let l=0;
+  while(stk.length){const p=stk.pop();for(const x of NB[p]){
+    if(!b[x]&&!vis[x]){vis[x]=1;l++;}
+    else if(b[x]===col&&!vis[x]){vis[x]=1;stk.push(x);}
+  }}
+  return l;
+}
+function capture(b,pos,col){
   const opp=3-col;
+  for(const x of NB[pos]){
+    if(b[x]!==opp)continue;
+    if(grpLibs(b,x)===0){
+      const stk=[x],vis=new Uint8Array(N);vis[x]=1;
+      while(stk.length){const p=stk.pop();b[p]=0;
+        for(const y of NB[p])if(!vis[y]&&b[y]===opp){vis[y]=1;stk.push(y);}}
+    }
+  }
+}
+function isLegal(b,pos,col,ko){
+  if(b[pos]||pos===ko)return false;
+  const tmp=new Int8Array(b);tmp[pos]=col;capture(tmp,pos,col);
+  return grpLibs(tmp,pos)>0;
+}
+
+/* ── 초고속 롤아웃 + RAVE 추적 ──
+   O(1) 이웃 체크만 사용 (BFS 없음)
+   단석 포획 + 자충수 회피 + 랜덤 */
+function fastRollout(board, turn, raveArr, raveLen){
+  const b=new Int8Array(board);
+  let t=turn,pass=0,rIdx=raveLen;
+
+  /* 단석 즉시 포획 (O(1)) */
+  function captureSingle(pos,opp){
+    for(const x of NB[pos]){
+      if(b[x]!==opp)continue;
+      let el=0;for(const y of NB[x])if(!b[y])el++;
+      if(el===0)b[x]=0; /* 단석만 제거 */
+    }
+  }
+  /* O(1) 자유도 근사 */
+  function hasLibFast(pos,col){
+    for(const x of NB[pos])if(!b[x])return true;
+    /* 포획으로 자유도 생기는 경우 */
+    for(const x of NB[pos])if(b[x]===3-col){
+      let el=0;for(const y of NB[x])if(!b[y])el++;
+      if(el===1)return true;
+    }
+    return false;
+  }
+
+  for(let m=0;m<N*2&&pass<2;m++){
+    let moved=false;
+    for(let k=0;k<20;k++){
+      const pos=Math.random()*N|0;
+      if(b[pos])continue;
+      if(!hasLibFast(pos,t))continue;
+      b[pos]=t;
+      captureSingle(pos,3-t);
+      /* 자기 자유도 재확인 */
+      let sl=0;for(const x of NB[pos])if(!b[x])sl++;
+      if(sl===0){b[pos]=0;continue;} /* 취소 */
+      /* RAVE에 기록 */
+      if(rIdx<raveArr.length)raveArr[rIdx++]=pos;
+      pass=0;moved=true;break;
+    }
+    if(!moved)pass++;
+    t=3-t;
+  }
+  /* 간단 집 계산 */
+  let bs=0,ws=0;
+  for(let i=0;i<N;i++){if(b[i]===1)bs++;else if(b[i]===2)ws++;}
+  return bs>ws+6.5?1:2;
+}
+
+/* ── 후보 수 (최대 40개) ── */
+function getCands(b,col,ko,max){
+  const near=new Uint8Array(N);
+  let has=false;
+  for(let i=0;i<N;i++)if(b[i]){has=true;for(const x of NB[i])if(!b[x])near[x]=1;}
+  if(!has)for(let r=3;r<SZ-3;r++)for(let c=3;c<SZ-3;c++)near[r*SZ+c]=1;
+  const list=[];
+  for(let i=0;i<N;i++){
+    if(!near[i]||!isLegal(b,i,col,ko))continue;
+    const tmp=new Int8Array(b);tmp[i]=col;capture(tmp,i,col);
+    let s=0,caps=0;
+    for(let j=0;j<N;j++)if(b[j]&&!tmp[j])caps++;s+=caps*20;
+    const opp=3-col;
+    for(const x of NB[i])if(tmp[x]===opp){const l=grpLibs(tmp,x);if(l===1)s+=25;else if(l===2)s+=10;}
+    const sl=grpLibs(tmp,i);if(sl===1)s-=35;else if(sl===2)s-=10;
+    const r2=i/SZ|0,c2=i%SZ,d=Math.min(r2,c2,SZ-1-r2,SZ-1-c2);
+    if(d===0)s-=14;else if(d===1)s-=5;else if(d===2)s+=3;else if(d===3)s+=8;
+    let fc=0;for(const x of NB[i])if(b[x]===col)fc++;s+=fc*5;
+    s+=Math.random()*4;
+    list.push({i,s});
+  }
+  list.sort((a,b2)=>b2.s-a.s);
+  return list.slice(0,max).map(x=>x.i);
+}
+
+/* ═══ FLAT MCTS + RAVE ═══ */
+function mcts(board,col,ko,sims){
+  const legal=getCands(board,col,ko,35);
+  if(!legal.length)return -1;
+  if(legal.length===1)return legal[0];
+  const n=legal.length;
+  const W=new Float64Array(n),V=new Uint32Array(n);
+  const RW=new Float64Array(n),RV=new Uint32Array(n);
+  const p2i=new Map();for(let i=0;i<n;i++)p2i.set(legal[i],i);
+  /* RAVE 추적 버퍼 재사용 */
+  const raveBuf=new Int32Array(600);
+  let total=1;
+
+  for(let s=0;s<sims;s++){
+    /* UCB+RAVE 선택 */
+    let best=0,bestV=-Infinity;
+    const logT=Math.log(total+1);
+    for(let i=0;i<n;i++){
+      let v;
+      if(!V[i]){v=1e9+Math.random()*100;}
+      else{
+        const q=W[i]/V[i];
+        const u=1.5*Math.sqrt(logT/V[i]);
+        let rq=0;
+        if(RV[i]>0){const beta=Math.sqrt(300/(300+3*V[i]));rq=beta*(RW[i]/RV[i]-q);}
+        v=q+u+rq;
+      }
+      if(v>bestV){bestV=v;best=i;}
+    }
+    if(!isLegal(board,legal[best],col,ko)){V[best]++;total++;continue;}
+    const tmp=new Int8Array(board);tmp[legal[best]]=col;capture(tmp,legal[best],col);
+    /* 롤아웃 + RAVE 수집 */
+    const raveStart=0;
+    raveBuf.fill(-1,0,200);
+    const winner=fastRollout(tmp,3-col,raveBuf,0);
+    const won=(winner===col)?1:0;
+    W[best]+=won;V[best]++;total++;
+    /* RAVE 갱신 */
+    for(let k=0;k<200;k++){
+      const m=raveBuf[k];if(m<0)break;
+      const idx=p2i.get(m);
+      if(idx!==undefined&&idx!==best){RW[idx]+=won;RV[idx]++;}
+    }
+  }
+  let bi=0;for(let i=1;i<n;i++)if(V[i]>V[bi])bi=i;
+  return legal[bi];
+}
+
+/* Lv1 초보 */
+function beginnerMove(board,col,ko){
+  const legal=[];for(let i=0;i<N;i++)if(isLegal(board,i,col,ko))legal.push(i);
+  if(!legal.length)return -1;
   const sc=legal.map(pos=>{
-    let s=Math.random()*1.1;const r=game.tryPlace(pos,col);if(!r)return{pos,s:-999};
-    s+=r.cap.size*(7+lv*.8);
-    if(lv>=3){const b2=r.b;for(const n of game.nb(pos))if(b2[n]===opp){const og=game.grp(b2,n),ol=game.libs(b2,og).size;if(ol===1)s+=14;else if(ol===2)s+=5;}if(game.libs(b2,game.grp(b2,pos)).size<=1)s-=18;}
-    if(lv>=4){const row=pos/game.sz|0,c2=pos%game.sz,d=Math.min(row,c2,game.sz-1-row,game.sz-1-c2);if(d===0)s-=7;else if(d===1)s-=2;else if(d===2)s+=2;else if(d===3)s+=4;}
-    if(lv>=5){for(const n of game.nb(pos))if(game.board[n]===col){const mg=game.grp(game.board,n),ml=game.libs(game.board,mg).size;if(ml<=2)s+=10;else if(ml===3)s+=3;}}
-    if(lv>=6){let fc=0;for(const n of game.nb(pos))if(game.board[n]===col)fc++;s+=fc*2;}
-    if(lv>=7){const row=pos/game.sz|0,c2=pos%game.sz,sp=game.sz<=9?2:3,mid=game.sz>>1;if((row===sp||row===game.sz-1-sp||row===mid)&&(c2===sp||c2===game.sz-1-sp||c2===mid))s+=6;}
+    const tmp=new Int8Array(board);tmp[pos]=col;capture(tmp,pos,col);
+    let s=Math.random()*6,caps=0;
+    for(let j=0;j<N;j++)if(board[j]&&!tmp[j])caps++;s+=caps*10;
+    const opp=3-col;
+    for(const x of NB[pos])if(tmp[x]===opp){const l=grpLibs(tmp,x);if(l===1)s+=15;else if(l===2)s+=5;}
+    const sl=grpLibs(tmp,pos);if(sl===1&&Math.random()>0.3)s-=25;
+    const r=pos/SZ|0,c=pos%SZ,d=Math.min(r,c,SZ-1-r,SZ-1-c);
+    if(d===0)s-=8;else if(d>=2)s+=3;
     return{pos,s};
   });
   sc.sort((a,b)=>b.s-a.s);
-  const top=lv<=3?Math.ceil(legal.length*.7):lv<=5?Math.ceil(legal.length*.4):lv<=7?Math.min(12,sc.length):Math.min(5,sc.length);
-  return sc.slice(0,top)[Math.random()*top|0].pos;
+  return sc[Math.random()*Math.max(1,Math.ceil(sc.length*0.55))|0].pos;
 }
 
+/* 레벨별 시뮬 수 */
+const SIM=[0,0,50,120,250,420,620,880,1200,1600,2100];
+
+self.onmessage=function(e){
+  const{board,col,ko,lv}=e.data;
+  const b=new Int8Array(board);
+  self.postMessage(lv===1?beginnerMove(b,col,ko):mcts(b,col,ko,SIM[lv]));
+};
+`;
+
+/* Worker 인스턴스 생성 */
+let _worker = null;
+let _workerBusy = false;
+let _workerResolve = null;
+
+function getWorker(){
+  if(!_worker){
+    const blob = new Blob([WORKER_CODE], {type:'application/javascript'});
+    _worker = new Worker(URL.createObjectURL(blob));
+    _worker.onmessage = function(e){
+      _workerBusy = false;
+      if(_workerResolve){ _workerResolve(e.data); _workerResolve=null; }
+    };
+    _worker.onerror = function(err){
+      console.error('Worker error:', err);
+      _workerBusy = false;
+      if(_workerResolve){ _workerResolve(-1); _workerResolve=null; }
+    };
+  }
+  return _worker;
+}
+
+/* AI 수 요청 → Promise 반환 */
+function requestAIMove(game, col, lv){
+  return new Promise(resolve=>{
+    if(_workerBusy){ resolve(-1); return; }
+    _workerBusy = true;
+    _workerResolve = resolve;
+    getWorker().postMessage({
+      board: game.board.buffer.slice(0),
+      col, ko: game.ko, lv
+    }, [game.board.buffer.slice(0)]);
+  });
+}
+
+/* ══════════════════════════════════════
+   KataGo TF.js — GitHub Pages 호스팅
+   musasalsu.github.io/Baduk/model/
+══════════════════════════════════════ */
+const TFJS_SRC = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js';
+const KATA_URL = 'https://musasalsu.github.io/Baduk/model/model.json';
+
+let kataModel = null;
+let kataState = 'idle'; /* idle | loading | ready | failed */
+
+function showKataBanner(msg, color){
+  let el=document.getElementById('kata-banner');
+  if(!el){
+    el=document.createElement('div');el.id='kata-banner';
+    el.style.cssText='position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:50;'+
+      'padding:5px 16px;border-radius:16px;font-size:clamp(.75rem,1.9vh,1rem);font-weight:800;'+
+      'pointer-events:none;transition:opacity .5s;white-space:nowrap;';
+    const gs=document.getElementById('gs');if(gs)gs.appendChild(el);
+  }
+  el.style.background=color||'#333';el.style.color='#fff';
+  el.textContent=msg;el.style.opacity='1';
+  if(color==='#27ae60'){setTimeout(()=>{el.style.opacity='0';},5000);}
+}
+
+function updKataIndicator(){
+  const el=document.querySelector('.lnb-htitle');if(!el)return;
+  const m={'idle':'대국 정보','loading':'⏳ KataGo 로딩 중','ready':'⚡ KataGo 신경망','failed':'🔧 MCTS 모드'};
+  el.textContent=m[kataState]||'대국 정보';
+}
+
+function loadTFJS(){
+  return new Promise((res,rej)=>{
+    if(window.tf){res();return;}
+    const s=document.createElement('script');
+    s.src=TFJS_SRC;s.onload=res;s.onerror=()=>rej(new Error('TF.js 로드 실패'));
+    document.head.appendChild(s);
+  });
+}
+
+async function initKataGo(){
+  if(kataState!=='idle')return;
+  kataState='loading';
+  showKataBanner('⏳ KataGo 로딩 중...','#444');
+  updKataIndicator();
+  try{
+    await loadTFJS();
+    try{await tf.setBackend('webgl');}catch(e){await tf.setBackend('cpu');}
+    await tf.ready();
+    console.log('[KataGo] TF.js 준비, 백엔드:',tf.getBackend());
+    showKataBanner('⏳ 신경망 다운로드 중...','#444');
+    kataModel = await tf.loadGraphModel(KATA_URL);
+    /* 워밍업 */
+    const dummy=tf.zeros([1,19,19,22]);
+    try{
+      const out=kataModel.execute(dummy);
+      const arr=Array.isArray(out)?out:[out];
+      console.log('[KataGo] 출력 shape:',arr[0].shape);
+      arr.forEach(t=>t.dispose());
+    }catch(e){console.warn('[KataGo] 워밍업 경고:',e.message);}
+    dummy.dispose();
+    kataState='ready';
+    showKataBanner('⚡ KataGo 신경망 작동 중!','#27ae60');
+    updKataIndicator();
+    console.log('[KataGo] 준비 완료!');
+  }catch(e){
+    console.error('[KataGo] 실패:',e.message);
+    kataState='failed';
+    showKataBanner('🔧 MCTS 모드','#555');
+    updKataIndicator();
+  }
+}
+
+/* KataGo 입력 피처 (22채널) */
+function buildKataInput(board,col,ko,log){
+  const N=19,NC=22,my=col,op=3-col;
+  const f=new Float32Array(N*N*NC);
+  const p1=log.length>0?log[log.length-1].board:null;
+  const p2=log.length>1?log[log.length-2].board:null;
+  for(let i=0;i<N*N;i++){
+    const b=board[i],base=i*NC;
+    f[base+0]=b===my?1:0;f[base+1]=b===op?1:0;f[base+2]=b===0?1:0;f[base+3]=ko===i?1:0;
+    if(p1){f[base+7]=p1[i]===my?1:0;f[base+8]=p1[i]===op?1:0;}
+    if(p2){f[base+9]=p2[i]===my?1:0;f[base+10]=p2[i]===op?1:0;}
+    if(b===my||b===op){
+      const r=i/N|0,c=i%N;let l=0;
+      if(r>0&&!board[i-N])l++;if(r<N-1&&!board[i+N])l++;
+      if(c>0&&!board[i-1])l++;if(c<N-1&&!board[i+1])l++;
+      const off=b===my?15:18;f[base+off+(l<=1?0:l===2?1:2)]=1;
+    }
+    f[base+21]=my===1?1:0;
+  }
+  return f;
+}
+
+/* KataGo 추론 */
+async function kataInfer(game,col){
+  if(kataState!=='ready')return null;
+  const fData=buildKataInput(game.board,col,game.ko,game.log);
+  const tensor=tf.tensor4d(fData,[1,19,19,22]);
+  let pd=null;
+  try{
+    const out=kataModel.execute(tensor);
+    if(out instanceof tf.Tensor){pd=await out.data();out.dispose();}
+    else if(Array.isArray(out)){pd=await out[0].data();out.forEach(t=>t.dispose());}
+    else{const keys=Object.keys(out);pd=await out[keys[0]].data();keys.forEach(k=>out[k].dispose());}
+  }catch(e){console.error('[KataGo] 추론 오류:',e.message);tensor.dispose();return null;}
+  tensor.dispose();
+  if(!pd||pd.length<361)return null;
+  return pd;
+}
+
+/* 수 선택 (레벨별 온도) */
+async function kataSuggest(game,col,lv){
+  const pd=await kataInfer(game,col);if(!pd)return null;
+  const legal=game.legalMoves(col);if(!legal.length)return -1;
+  const temp=Math.max(0.05,2.6-(lv*0.26));
+  let maxL=-Infinity;for(const p of legal)if(pd[p]>maxL)maxL=pd[p];
+  const cands=legal.map(p=>({p,s:Math.exp((pd[p]-maxL)/temp)}));
+  let tot=cands.reduce((s,c)=>s+c.s,0);
+  if(!tot||!isFinite(tot))return legal[Math.random()*legal.length|0];
+  let r=Math.random()*tot;
+  for(const c of cands){r-=c.s;if(r<=0)return c.p;}
+  return cands[cands.length-1].p;
+}
+
+/* ════════ 게임 상태 ════════ */
 /* ════════ 게임 상태 ════════ */
 let game=null,curSave=null,curR=0,curC=0;
 const BC=document.getElementById('board-canvas');
@@ -697,7 +1043,7 @@ function placeStone(){
   drawGame();updStrip();
   if(game.over){endGame();return;}
   const st=document.getElementById('s-turn');st.textContent='○';st.className='s-turn ai';
-  setTimeout(aiTurn,380);
+  aiTurn();
 }
 
 function updStrip(){
@@ -714,6 +1060,7 @@ function startGame(){
   game=new GoGame(selSz);
   curR=Math.floor(selSz/2);curC=Math.floor(selSz/2);
   document.getElementById('s-lv').textContent='LV '+selLv;
+  initKataGo();
   go('gs');
 }
 
@@ -780,8 +1127,30 @@ function stars(sz){
 }
 
 /* ────── 게임 액션 ────── */
-function aiTurn(){if(!game||game.over)return;const p=aiMove(game,2,selLv);game.move(p);drawGame();updStrip();if(game.over)endGame();}
-function doPass(){if(!game||game.over)return;game.move(-1);drawGame();updStrip();if(game.over){endGame();return;}setTimeout(aiTurn,380);}
+async function aiTurn(){
+  if(!game||game.over)return;
+  let pos=null;
+  /* KataGo 신경망 우선 */
+  if(kataState==='ready'&&selLv>1){
+    pos=await kataSuggest(game,2,selLv);
+  }
+  /* 실패 or 레벨1 → MCTS */
+  if(pos==null){
+    pos=await requestAIMove(game,2,selLv);
+  }
+  if(!game||game.over)return;
+  game.move(typeof pos==='number'&&pos>=0?pos:-1);
+  drawGame();updStrip();
+  if(game.over)endGame();
+}
+function doPass(){
+  if(!game||game.over)return;
+  game.move(-1);drawGame();updStrip();
+  if(game.over){endGame();return;}
+  document.getElementById('s-turn').textContent='○';
+  document.getElementById('s-turn').className='s-turn ai';
+  aiTurn();
+}
 function doResign(){if(!game)return;game.over=true;game.resign=true;endGame();}
 function doUndo(){
   if(!game||game.log.length<2)return;
