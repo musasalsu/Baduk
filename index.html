@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.json">
+<title>어르신 바둑</title>
+<style>
+/*
+  Galaxy A34 5G (SM-A346N) 가로 기준
+  물리: 2340 × 1080  /  DPR: 2.75
+  CSS : 851 × 393 px  /  비율 19.5:9
+  -------------------------------------------------
+  토글  :  48px  (5.6vw)
+  바둑판:  393px (100vh) × 393px
+  D-PAD : ~410px (나머지) × 393px
+*/
+:root{
+  --bg:#0f0f0f;
+  --sf1:#181818;   /* LNB / 바닥 */
+  --sf2:#202020;   /* 카드 */
+  --sf3:#282828;   /* 버튼 기본 */
+  --gold:#FFD700;
+  --goldA:rgba(255,215,0,.13);
+  --text:#efefef;
+  --sub:#909090;
+  --dim:#505050;
+  --red:#d93030;
+  --grn:#27ae60;
+  --border:#2c2c2c;
+  --toggle:48px;   /* 좌측 토글 스트립 */
+  --lnb:210px;     /* LNB 패널 폭 */
+  --r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0;
+  -webkit-tap-highlight-color:transparent;
+  -webkit-touch-callout:none;
+  touch-action:manipulation;}
+html,body{
+  width:100%;height:100%;
+  overflow:hidden;
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Apple SD Gothic Neo','Samsung One','Noto Sans KR',sans-serif;
+}
+
+/* ══════════════════════════════
+   화면 시스템
+══════════════════════════════ */
+.screen{display:none;width:100vw;height:100vh;}
+.screen.on{display:flex;}
+
+/* ══════════════════════════════
+   공통 버튼
+══════════════════════════════ */
+.btn{
+  display:flex;align-items:center;justify-content:center;gap:7px;
+  border:none;border-radius:var(--r);cursor:pointer;font-weight:800;
+  transition:opacity .11s,transform .09s;
+}
+.btn:active{opacity:.68;transform:scale(.94);}
+.bg{background:var(--gold);color:#111;}
+.bd{background:var(--sf3);color:var(--text);border:1.5px solid var(--border);}
+.br{background:var(--red);color:#fff;}
+.bk{background:var(--grn);color:#fff;}
+
+/* ══════════════════════════════
+   비게임 화면 — 가로 2단
+══════════════════════════════ */
+.hl{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;padding:12px 10px 12px 14px;flex-shrink:0;width:34%;
+}
+.hdiv{width:1px;height:76%;background:var(--border);flex-shrink:0;align-self:center;}
+.hr{
+  flex:1;display:flex;flex-direction:column;
+  align-items:stretch;justify-content:center;
+  padding:10px 14px 10px 10px;gap:9px;
+  min-width:0;overflow-y:auto;
+}
+.logo{font-size:clamp(1.6rem,5vh,2.6rem);color:var(--gold);font-weight:900;text-align:center;line-height:1.2;}
+.logo-sub{font-size:clamp(.72rem,1.9vh,1.05rem);color:var(--dim);text-align:center;line-height:1.5;margin-top:4px;}
+.pg-title{font-size:clamp(.95rem,3vh,1.7rem);font-weight:900;color:var(--gold);text-align:center;}
+.hbtn{width:100%;padding:clamp(11px,2.6vh,18px) 12px;font-size:clamp(.95rem,2.8vh,1.55rem);}
+.smbtn{width:100%;padding:clamp(8px,2vh,13px) 10px;font-size:clamp(.82rem,2.2vh,1.2rem);}
+.backbtn{width:100%;padding:clamp(8px,1.9vh,13px);font-size:clamp(.8rem,2.1vh,1.15rem);}
+
+/* 레벨 그리드 */
+.lgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;width:100%;}
+.lbtn{
+  aspect-ratio:1;border:1.5px solid var(--border);border-radius:9px;
+  background:#161616;color:var(--text);cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  font-size:clamp(.9rem,2.8vh,1.55rem);font-weight:900;transition:all .1s;
+}
+.lbtn sub{font-size:.42em;color:var(--dim);display:block;margin-top:1px;}
+.lbtn.sel{background:var(--gold);color:#111;border-color:var(--gold);}
+.lbtn.sel sub{color:#555;}
+.lbtn:active{transform:scale(.9);}
+.szrow{display:flex;gap:5px;}
+.szbtn{
+  flex:1;padding:clamp(6px,1.7vh,11px) 0;
+  border:1.5px solid var(--border);border-radius:9px;
+  background:#161616;color:var(--text);cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  font-size:clamp(.78rem,2vh,1.2rem);font-weight:800;transition:all .1s;
+}
+.szbtn sub{font-size:.55em;color:var(--dim);}
+.szbtn.sel{background:var(--gold);color:#111;border-color:var(--gold);}
+.szbtn.sel sub{color:#555;}
+.szbtn:active{transform:scale(.9);}
+.szlbl{font-size:clamp(.72rem,1.9vh,1.05rem);font-weight:800;color:var(--gold);margin-top:4px;}
+
+/* 기보 / 복기 / TV */
+.recitem{
+  background:var(--sf2);border-radius:9px;
+  padding:clamp(9px,1.9vh,15px) 11px;margin:4px 0;
+  cursor:pointer;display:flex;justify-content:space-between;align-items:center;
+  border:1.5px solid transparent;
+}
+.recitem:active{border-color:var(--gold);}
+.recto{font-size:clamp(.82rem,2.1vh,1.3rem);font-weight:800;}
+.recsu{font-size:clamp(.65rem,1.6vh,.95rem);color:var(--dim);margin-top:2px;}
+.recar{font-size:clamp(.9rem,2.2vh,1.4rem);color:var(--gold);}
+.movcnt{font-size:clamp(.9rem,2.2vh,1.4rem);color:var(--gold);font-weight:900;}
+.rbtns{display:flex;gap:5px;width:100%;max-width:280px;}
+.rbtn{
+  flex:1;padding:clamp(8px,1.9vh,14px) 0;
+  background:var(--sf2);border:1.5px solid var(--border);border-radius:9px;
+  color:var(--text);font-size:clamp(1rem,2.7vh,1.65rem);cursor:pointer;
+}
+.rbtn:active{background:#252525;}
+.tvcard{background:var(--sf2);border-radius:10px;padding:clamp(10px,2.1vh,17px);}
+.tvhd{font-size:clamp(.78rem,1.9vh,1.2rem);font-weight:800;color:var(--gold);margin-bottom:7px;}
+.tvrow{display:flex;align-items:flex-start;gap:7px;margin:5px 0;}
+.tvnum{
+  width:clamp(22px,3.6vh,34px);height:clamp(22px,3.6vh,34px);
+  background:var(--gold);color:#111;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:clamp(.75rem,1.8vh,1.1rem);font-weight:900;flex-shrink:0;
+}
+.tvtxt{font-size:clamp(.68rem,1.7vh,1.05rem);line-height:1.6;padding-top:3px;}
+.tvhl{color:var(--gold);font-weight:800;}
+
+/* ══════════════════════════════
+   게임 화면
+══════════════════════════════ */
+#gs{position:relative;flex-direction:row;overflow:hidden;}
+
+/* ① 토글 스트립 */
+.lnb-strip{
+  position:relative;z-index:30;
+  width:var(--toggle);flex-shrink:0;height:100%;
+  background:#111;border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:space-between;
+  padding:8px 0 10px;cursor:pointer;user-select:none;
+}
+.lnb-strip:active{background:#181818;}
+/* 차례 표시 원 */
+.s-turn{
+  width:32px;height:32px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.1rem;font-weight:900;
+  border:2px solid var(--gold);
+  background:var(--goldA);color:var(--gold);
+  transition:all .2s;
+}
+.s-turn.ai{border-color:var(--sub);background:rgba(255,255,255,.07);color:var(--sub);}
+/* 햄버거 아이콘 - SVG로 깔끔하게 */
+.s-menu{display:none !important;}
+.s-menu span{display:block;width:18px;height:2px;background:var(--dim);border-radius:1px;transition:background .2s;}
+.lnb-strip:hover .s-menu span{background:var(--sub);}
+/* 레벨 수직 텍스트 */
+.s-lv{display:none !important;}
+
+/* ② LNB 패널 */
+.lnb-panel{
+  position:absolute;
+  left:var(--toggle);top:0;
+  width:var(--lnb);height:100%;
+  z-index:25;
+  background:var(--sf1);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  transform:translateX(calc(-1 * var(--lnb)));
+  transition:transform .22s cubic-bezier(.4,0,.2,1);
+  overflow:hidden;
+}
+.lnb-panel.open{transform:translateX(0);}
+
+/* LNB 상단: 대국 정보 */
+.lnb-head{
+  flex-shrink:0;
+  padding:10px 12px 8px;
+  border-bottom:1px solid var(--border);
+}
+.lnb-htitle{
+  font-size:.82rem;font-weight:900;
+  color:var(--gold);letter-spacing:.5px;
+  text-align:center;margin-bottom:8px;
+  text-transform:uppercase;
+}
+/* 흑/백 행 */
+.srow{
+  display:flex;align-items:center;gap:8px;
+  padding:6px 8px;border-radius:8px;
+  background:var(--sf2);margin-bottom:5px;
+  border:1.5px solid transparent;
+  transition:all .18s;
+}
+.srow.active{background:var(--goldA);border-color:rgba(255,215,0,.25);}
+.srow:last-child{margin-bottom:0;}
+.sc{width:24px;height:24px;border-radius:50%;flex-shrink:0;}
+.sc-b{background:radial-gradient(circle at 38% 35%,#606060,#0d0d0d);border:2px solid #bbb;}
+.sc-w{background:radial-gradient(circle at 38% 35%,#fff,#d0d0d0);border:2px solid #999;}
+.sinfo{flex:1;min-width:0;}
+.slabel{font-size:.88rem;font-weight:800;display:block;line-height:1;}
+.scap{font-size:.72rem;color:#cccccc;display:block;margin-top:2px;}
+.sbadge{
+  font-size:.65rem;font-weight:900;
+  padding:2px 6px;border-radius:5px;
+  background:var(--gold);color:#111;
+  flex-shrink:0;
+}
+
+/* LNB 하단: 버튼 4개 */
+.lnb-btns{
+  flex:1;
+  display:grid;
+  grid-template-rows:repeat(4,1fr);
+  gap:6px;
+  padding:10px 12px 12px;
+}
+.lnb-btn{
+  width:100%;height:100%;
+  border:none;border-radius:var(--r);cursor:pointer;
+  font-weight:900;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  font-size:clamp(.95rem,2.8vh,1.3rem);
+  transition:opacity .11s,transform .09s;
+}
+.lnb-btn:active{opacity:.68;transform:scale(.95);}
+.lb-pass  {background:#3a3a3a;color:#fff;border:1.5px solid #555;font-size:clamp(1rem,3vh,1.4rem);}
+.lb-undo  {background:#3a3a3a;color:#fff;border:1.5px solid #555;font-size:clamp(1rem,3vh,1.4rem);}
+.lb-resign{background:#e03030;color:#fff;border:1.5px solid #f05050;font-size:clamp(1rem,3vh,1.4rem);}
+.lb-home  {background:#2e2e2e;color:#ccc;border:1.5px solid #484848;font-size:clamp(1rem,3vh,1.4rem);}
+
+/* ③ 백드롭 */
+.lnb-back{
+  display:none;position:absolute;
+  left:calc(var(--toggle) + var(--lnb));
+  top:0;right:0;height:100%;
+  z-index:20;background:rgba(0,0,0,.5);
+}
+.lnb-back.open{display:block;}
+
+/* ④ 게임 콘텐츠 */
+.gs-body{
+  position:absolute;
+  left:var(--toggle);top:0;right:0;bottom:0;
+  display:flex;flex-direction:row;
+  align-items:center;
+}
+
+/* 바둑판 열 — 100vh 정사각형 */
+.board-col{
+  flex-shrink:0;height:100%;
+  display:flex;align-items:center;justify-content:center;
+  padding:4px 2px 4px 4px;
+}
+#board-canvas{display:block;border-radius:6px;}
+
+/* D-PAD 열 — 나머지 전부 */
+.dpad-col{
+  flex:1;min-width:0;height:100%;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  padding:4px 4px 4px 2px;gap:4px;
+}
+/* 커서 배지 */
+.cur-badge{
+  font-size:clamp(.68rem,1.8vh,.98rem);
+  color:var(--dim);background:var(--sf2);
+  border-radius:5px;padding:2px 9px;
+  white-space:nowrap;flex-shrink:0;
+}
+.cur-val{color:var(--gold);font-weight:900;font-size:1.2em;}
+
+/* D-PAD 그리드
+   높이 기준 정사각형:
+   Galaxy A34: (393-12)px = 381px 또는 (360-12)=348px
+   → 3×3 셀 크기 ≈ 124px or 113px → 충분히 큰 터치 타깃 */
+.dpad{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  grid-template-rows:repeat(3,1fr);
+  gap:5px;
+  /* 정사각형: 열 너비 vs 행 높이 중 작은 쪽 */
+  width :min(calc(100% - 8px), calc(100vh - 16px));
+  height:min(calc(100% - 28px),calc(100vh - 16px));
+  aspect-ratio:1/1;
+}
+.dp{
+  border:none;border-radius:10px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  font-size:11vh;          /* 모든 셀 동일 크기 고정 */
+  line-height:1;
+  background:#ffffff;color:#000000;
+  border:2px solid #cccccc;
+  transition:all .08s;user-select:none;
+  -webkit-text-stroke:1.5px #000;
+}
+.dp:active{background:#e8e8e8;transform:scale(.88);}
+.dp-c{
+  background:var(--gold);color:#111;
+  border-color:var(--gold);
+  font-size:clamp(1.3rem,4.5vh,2rem);
+  font-weight:900;line-height:1.3;text-align:center;
+  -webkit-text-stroke:0;
+}
+.dp-c:active{opacity:.72;transform:scale(.92);}
+.dp-e{background:transparent;border:none;pointer-events:none;-webkit-text-stroke:0;}
+
+/* 전체화면 버튼 */
+.fs-btn{
+  position:absolute;
+  top:8px;right:8px;
+  z-index:35;
+  width:36px;height:36px;
+  border:none;border-radius:8px;
+  background:rgba(255,215,0,.18);
+  border:1.5px solid rgba(255,215,0,.4);
+  color:#FFD700;
+  font-size:1.1rem;
+  cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .15s;
+}
+.mbg{
+  display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,.88);z-index:200;
+  align-items:center;justify-content:center;
+}
+.mbg.on{display:flex;}
+.mbox{
+  background:#1e1e1e;border-radius:14px;
+  padding:clamp(16px,4vh,28px) clamp(14px,4vw,26px);
+  width:min(74%,300px);text-align:center;
+  border:1px solid var(--border);
+}
+.mbt{font-size:clamp(.95rem,2.9vh,1.55rem);font-weight:900;margin-bottom:4px;}
+.mbs{font-size:clamp(.75rem,1.9vh,1.05rem);color:var(--dim);margin-bottom:14px;}
+.mbr{display:flex;gap:7px;}
+.mbr .btn{flex:1;padding:clamp(9px,2.4vh,15px);font-size:clamp(.84rem,2.1vh,1.25rem);}
+
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:2px;}
+</style>
+</head>
+<body>
+
+<!-- ══ 홈 ══ -->
+<div id="home-screen" class="screen on" style="flex-direction:row;">
+  <div class="hl">
+    <div class="logo">🀰<br>어르신 바둑</div>
+    <div class="logo-sub">TV로 크게 보고<br>핸드폰으로 조종</div>
+  </div>
+  <div class="hdiv"></div>
+  <div class="hr">
+    <button class="btn bg hbtn" onclick="go('level-screen')">▶ 새 게임 시작</button>
+    <button class="btn bd hbtn" onclick="go('records-screen')">📋 지난 대국 복기</button>
+
+  </div>
+</div>
+
+<!-- ══ 레벨 선택 ══ -->
+<div id="level-screen" class="screen" style="flex-direction:row;">
+  <div class="hl">
+    <div class="pg-title">실력 선택</div>
+    <button class="btn bg" style="width:100%;padding:clamp(10px,2.4vh,16px);font-size:clamp(.88rem,2.6vh,1.3rem);margin-top:10px;" onclick="startGame()">▶ 시작하기</button>
+    <button class="btn bd" style="width:100%;padding:clamp(7px,1.8vh,12px);font-size:clamp(.78rem,2vh,1.1rem);margin-top:6px;" onclick="go('home-screen')">← 돌아가기</button>
+  </div>
+  <div class="hdiv"></div>
+  <div class="hr">
+    <div class="lgrid" id="level-grid"></div>
+  </div>
+</div>
+
+<!-- ══ 게임 — LNB 풀스크린 ══ -->
+<div id="gs" class="screen">
+
+  <!-- 토글 스트립 -->
+  <div class="lnb-strip" onclick="toggleLNB()" id="lnb-strip">
+    <div class="s-turn" id="s-turn">●</div>
+    <div class="s-menu" style="display:none;">
+      <span></span><span></span><span></span>
+    </div>
+    <div class="s-lv" id="s-lv" style="display:none;">LV 5</div>
+  </div>
+
+  <!-- LNB 패널 -->
+  <div class="lnb-panel" id="lnb-panel">
+
+    <!-- 상단: 대국 정보 -->
+    <div class="lnb-head">
+      <div class="lnb-htitle">대국 정보</div>
+      <div class="srow" id="srow-b">
+        <div class="sc sc-b"></div>
+        <div class="sinfo">
+          <span class="slabel">나 (흑)</span>
+          <span class="scap" id="cap-b">따낸 돌 0개</span>
+        </div>
+        <span class="sbadge" id="badge-b">차례</span>
+      </div>
+      <div class="srow" id="srow-w">
+        <div class="sc sc-w"></div>
+        <div class="sinfo">
+          <span class="slabel">AI (백)</span>
+          <span class="scap" id="cap-w">따낸 돌 0개</span>
+        </div>
+        <span class="sbadge" id="badge-w" style="visibility:hidden;">차례</span>
+      </div>
+    </div>
+
+    <!-- 하단: 버튼 4개 -->
+    <div class="lnb-btns">
+      <button class="lnb-btn lb-pass"   onclick="doPass();closeLNB()">⏸&nbsp;패스</button>
+      <button class="lnb-btn lb-undo"   onclick="doUndo();closeLNB()">↩&nbsp;무르기</button>
+      <button class="lnb-btn lb-resign" onclick="showModal('resign-modal');closeLNB()">✕&nbsp;포기</button>
+      <button class="lnb-btn lb-home"   onclick="go('home-screen')">⌂&nbsp;홈</button>
+    </div>
+  </div>
+
+  <!-- 전체화면 토글 -->
+  <button class="fs-btn" id="fs-btn" onclick="toggleFS()" title="전체화면">⛶</button>
+
+  <!-- 백드롭 -->
+  <div class="lnb-back" id="lnb-back" onclick="closeLNB()"></div>
+
+  <!-- 게임 콘텐츠 -->
+  <div class="gs-body">
+    <!-- 바둑판 -->
+    <div class="board-col" id="board-col">
+      <canvas id="board-canvas"></canvas>
+    </div>
+    <!-- D-PAD -->
+    <div class="dpad-col">
+      <div class="cur-badge" style="display:none;">커서&nbsp;<span class="cur-val" id="cur-pos">--</span></div>
+      <div class="dpad">
+        <div class="dp dp-e"></div>
+        <button class="dp" onclick="moveCursor('up')">▲</button>
+        <div class="dp dp-e"></div>
+        <button class="dp" onclick="moveCursor('left')">◀</button>
+        <button class="dp dp-c" onclick="placeStone()">놓기</button>
+        <button class="dp" onclick="moveCursor('right')">▶</button>
+        <div class="dp dp-e"></div>
+        <button class="dp" onclick="moveCursor('down')">▼</button>
+        <div class="dp dp-e"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 결과 ══ -->
+<div id="result-screen" class="screen" style="flex-direction:row;">
+  <div class="hl">
+    <div style="background:var(--sf2);border-radius:12px;padding:clamp(14px,3.5vh,26px) clamp(11px,3vw,20px);width:100%;text-align:center;">
+      <div style="font-size:clamp(1.1rem,3.8vh,2.1rem);font-weight:900;margin-bottom:6px;" id="rwin"></div>
+      <div style="font-size:clamp(.72rem,1.9vh,1.2rem);color:var(--dim);" id="rscore"></div>
+    </div>
+  </div>
+  <div class="hdiv"></div>
+  <div class="hr">
+    <button class="btn bk hbtn" onclick="viewReplay()">▶ 복기 보기</button>
+    <button class="btn bg  hbtn" onclick="go('level-screen')">🔄 다시 하기</button>
+    <button class="btn bd  hbtn" onclick="go('home-screen')">🏠 홈으로</button>
+  </div>
+</div>
+
+<!-- ══ 기보 목록 ══ -->
+<div id="records-screen" class="screen" style="flex-direction:row;">
+  <div class="hl">
+    <div class="pg-title">지난 대국</div>
+    <button class="btn bd backbtn" style="margin-top:11px;" onclick="go('home-screen')">← 돌아가기</button>
+  </div>
+  <div class="hdiv"></div>
+  <div class="hr" id="recs-list"></div>
+</div>
+
+<!-- ══ 복기 ══ -->
+<div id="replay-screen" class="screen" style="flex-direction:row;">
+  <div class="hl" style="width:auto;flex-shrink:0;padding:5px 2px 5px 5px;">
+    <canvas id="replay-canvas" style="border-radius:6px;display:block;"></canvas>
+  </div>
+  <div class="hdiv"></div>
+  <div class="hr" style="align-items:center;justify-content:center;">
+    <div class="movcnt" id="movcnt">0 / 0 수</div>
+    <div class="rbtns">
+      <button class="rbtn" onclick="rFirst()">⏮</button>
+      <button class="rbtn" onclick="rPrev()">◀</button>
+      <button class="rbtn" onclick="rNext()">▶</button>
+      <button class="rbtn" onclick="rLast()">⏭</button>
+    </div>
+    <button class="btn bd backbtn" style="max-width:260px;" onclick="go('records-screen')">← 목록으로</button>
+  </div>
+</div>
+
+
+
+<!-- 모달 -->
+<div class="mbg" id="pass-modal">
+  <div class="mbox">
+    <div class="mbt">패스 하시겠습니까?</div>
+    <div class="mbs">내 차례를 포기합니다</div>
+    <div class="mbr">
+      <button class="btn bg" onclick="doPass();closeModal('pass-modal')">예, 패스</button>
+      <button class="btn bd" onclick="closeModal('pass-modal')">아니오</button>
+    </div>
+  </div>
+</div>
+<div class="mbg" id="resign-modal">
+  <div class="mbox">
+    <div class="mbt">포기 하시겠습니까?</div>
+    <div class="mbs">대국을 종료합니다</div>
+    <div class="mbr">
+      <button class="btn br" onclick="doResign();closeModal('resign-modal')">포기</button>
+      <button class="btn bd" onclick="closeModal('resign-modal')">계속하기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* 전체화면 */
+function toggleFS(){
+  const btn=document.getElementById('fs-btn');
+  if(!document.fullscreenElement){
+    document.documentElement.requestFullscreen().catch(()=>{});
+    btn.textContent='⊠';
+  } else {
+    document.exitFullscreen().catch(()=>{});
+    btn.textContent='⛶';
+  }
+}
+document.addEventListener('fullscreenchange',()=>{
+  const btn=document.getElementById('fs-btn');
+  if(btn) btn.textContent=document.fullscreenElement?'⊠':'⛶';
+});
+
+/* 가로 잠금 */
+if(screen.orientation&&screen.orientation.lock){screen.orientation.lock('landscape').catch(()=>{});}
+
+/* ── 화면 ── */
+function go(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+  closeLNB();
+  if(id==='records-screen')renderRecs();
+  if(id==='gs')setTimeout(fitBoard,50);
+  if(id==='replay-screen')setTimeout(fitReplay,50);
+}
+function showModal(id){document.getElementById(id).classList.add('on');}
+function closeModal(id){document.getElementById(id).classList.remove('on');}
+
+/* ── LNB ── */
+let lnbOpen=false;
+function toggleLNB(){lnbOpen?closeLNB():openLNB();}
+function openLNB(){
+  lnbOpen=true;
+  document.getElementById('lnb-panel').classList.add('open');
+  document.getElementById('lnb-back').classList.add('open');
+  syncLNB();
+}
+function closeLNB(){
+  lnbOpen=false;
+  document.getElementById('lnb-panel').classList.remove('open');
+  document.getElementById('lnb-back').classList.remove('open');
+}
+function syncLNB(){
+  if(!game)return;
+  const my=game.turn===1;
+  document.getElementById('cap-b').textContent=`따낸 돌 ${game.capB}개`;
+  document.getElementById('cap-w').textContent=`따낸 돌 ${game.capW}개`;
+  document.getElementById('badge-b').style.visibility=my?'visible':'hidden';
+  document.getElementById('badge-w').style.visibility=my?'hidden':'visible';
+  document.getElementById('srow-b').className='srow'+(my?' active':'');
+  document.getElementById('srow-w').className='srow'+(my?'':' active');
+}
+
+/* ── 레벨 ── */
+const LVN=['','입문1','입문2','초급1','초급2','중급1','중급2','고급1','고급2','상급1','상급2'];
+let selLv=5,selSz=19;
+(function(){
+  const g=document.getElementById('level-grid');
+  for(let i=1;i<=10;i++){
+    const b=document.createElement('button');
+    b.className='lbtn'+(i===5?' sel':'');
+    b.id='lv'+i;
+    b.innerHTML=i+'<sub>'+LVN[i]+'</sub>';
+    b.onclick=()=>setLv(i);
+    g.appendChild(b);
+  }
+})();
+function setLv(n){selLv=n;for(let i=1;i<=10;i++)document.getElementById('lv'+i).classList.toggle('sel',i===n);}
+function setSz(n){selSz=n;[9,13,19].forEach(s=>document.getElementById('sz'+s).classList.toggle('sel',s===n));}
+
+/* ════════ 바둑 엔진 ════════ */
+class GoGame{
+  constructor(sz){this.sz=sz;this.n=sz*sz;this.board=new Int8Array(this.n);this.turn=1;this.log=[];this.ko=-1;this.passes=0;this.capB=0;this.capW=0;this.over=false;}
+  nb(i){const r=i/this.sz|0,c=i%this.sz,a=[];if(r>0)a.push(i-this.sz);if(r<this.sz-1)a.push(i+this.sz);if(c>0)a.push(i-1);if(c<this.sz-1)a.push(i+1);return a;}
+  grp(b,p){const col=b[p];if(!col)return new Set();const s=new Set([p]),stk=[p];while(stk.length)for(const n of this.nb(stk.pop()))if(!s.has(n)&&b[n]===col){s.add(n);stk.push(n);}return s;}
+  libs(b,g){const l=new Set();for(const p of g)for(const n of this.nb(p))if(!b[n])l.add(n);return l;}
+  tryPlace(pos,col){
+    if(pos<0||pos>=this.n||this.board[pos]||pos===this.ko)return null;
+    const b=new Int8Array(this.board);b[pos]=col;
+    const opp=3-col,cap=new Set();
+    for(const n of this.nb(pos))if(b[n]===opp){const g=this.grp(b,n);if(!this.libs(b,g).size)g.forEach(p=>cap.add(p));}
+    cap.forEach(p=>{b[p]=0;});
+    if(!this.libs(b,this.grp(b,pos)).size)return null;
+    let nko=-1;const mg=this.grp(b,pos);
+    if(cap.size===1&&mg.size===1)nko=[...cap][0];
+    return{b,cap,nko};
+  }
+  move(pos){
+    if(this.over)return false;
+    const col=this.turn;
+    if(pos===-1){this.log.push({pos:-1,color:col,board:new Int8Array(this.board),ko:this.ko});this.ko=-1;this.passes++;if(this.passes>=2)this.over=true;else this.turn=3-col;return true;}
+    const r=this.tryPlace(pos,col);if(!r)return false;
+    this.board=r.b;
+    if(col===1)this.capB+=r.cap.size;else this.capW+=r.cap.size;
+    this.log.push({pos,color:col,board:new Int8Array(this.board),ko:this.ko});
+    this.ko=r.nko;this.passes=0;this.turn=3-col;return true;
+  }
+  legalMoves(col){const m=[];for(let i=0;i<this.n;i++)if(!this.board[i]&&i!==this.ko&&this.tryPlace(i,col))m.push(i);return m;}
+  score(){
+    let bs=this.capB,ws=this.capW+6.5;
+    for(let i=0;i<this.n;i++){if(this.board[i]===1)bs++;else if(this.board[i]===2)ws++;}
+    const vis=new Uint8Array(this.n);
+    for(let i=0;i<this.n;i++){
+      if(!this.board[i]&&!vis[i]){
+        const reg=new Set([i]),stk=[i];let tb=false,tw=false;
+        while(stk.length){const c=stk.pop();for(const n of this.nb(c)){if(!this.board[n]&&!reg.has(n)){reg.add(n);stk.push(n);}else if(this.board[n]===1)tb=true;else if(this.board[n]===2)tw=true;}}
+        reg.forEach(p=>{vis[p]=1;});
+        if(tb&&!tw)bs+=reg.size;else if(tw&&!tb)ws+=reg.size;
+      }
+    }
+    return{b:bs.toFixed(1),w:ws.toFixed(1),bw:bs>ws};
+  }
+}
+
+/* ════════ AI ════════ */
+function aiMove(game,col,lv){
+  const legal=game.legalMoves(col);if(!legal.length)return -1;
+  if(lv<=2)return legal[Math.random()*legal.length|0];
+  const opp=3-col;
+  const sc=legal.map(pos=>{
+    let s=Math.random()*1.1;const r=game.tryPlace(pos,col);if(!r)return{pos,s:-999};
+    s+=r.cap.size*(7+lv*.8);
+    if(lv>=3){const b2=r.b;for(const n of game.nb(pos))if(b2[n]===opp){const og=game.grp(b2,n),ol=game.libs(b2,og).size;if(ol===1)s+=14;else if(ol===2)s+=5;}if(game.libs(b2,game.grp(b2,pos)).size<=1)s-=18;}
+    if(lv>=4){const row=pos/game.sz|0,c2=pos%game.sz,d=Math.min(row,c2,game.sz-1-row,game.sz-1-c2);if(d===0)s-=7;else if(d===1)s-=2;else if(d===2)s+=2;else if(d===3)s+=4;}
+    if(lv>=5){for(const n of game.nb(pos))if(game.board[n]===col){const mg=game.grp(game.board,n),ml=game.libs(game.board,mg).size;if(ml<=2)s+=10;else if(ml===3)s+=3;}}
+    if(lv>=6){let fc=0;for(const n of game.nb(pos))if(game.board[n]===col)fc++;s+=fc*2;}
+    if(lv>=7){const row=pos/game.sz|0,c2=pos%game.sz,sp=game.sz<=9?2:3,mid=game.sz>>1;if((row===sp||row===game.sz-1-sp||row===mid)&&(c2===sp||c2===game.sz-1-sp||c2===mid))s+=6;}
+    return{pos,s};
+  });
+  sc.sort((a,b)=>b.s-a.s);
+  const top=lv<=3?Math.ceil(legal.length*.7):lv<=5?Math.ceil(legal.length*.4):lv<=7?Math.min(12,sc.length):Math.min(5,sc.length);
+  return sc.slice(0,top)[Math.random()*top|0].pos;
+}
+
+/* ════════ 게임 상태 ════════ */
+let game=null,curSave=null,curR=0,curC=0;
+const BC=document.getElementById('board-canvas');
+const RC=document.getElementById('replay-canvas');
+const COLS='ABCDEFGHJKLMNOPQRST';
+const cpStr=()=>!game?'--':COLS[curC]+(game.sz-curR);
+
+function updCursor(){const s=cpStr();document.getElementById('cur-pos').textContent=s;}
+
+function moveCursor(dir){
+  if(!game)return;
+  if(dir==='up'&&curR>0)curR--;
+  else if(dir==='down'&&curR<game.sz-1)curR++;
+  else if(dir==='left'&&curC>0)curC--;
+  else if(dir==='right'&&curC<game.sz-1)curC++;
+  updCursor();drawGame();
+}
+/* 터치 이중발동 방지 — onclick만 사용하므로 불필요, 빈 함수로 유지 */
+function eR(){}
+
+function placeStone(){
+  if(!game||game.over||game.turn!==1)return;
+  const pos=curR*game.sz+curC;
+  if(!game.move(pos)){if(navigator.vibrate)navigator.vibrate(80);return;}
+  drawGame();updStrip();
+  if(game.over){endGame();return;}
+  const st=document.getElementById('s-turn');st.textContent='○';st.className='s-turn ai';
+  setTimeout(aiTurn,380);
+}
+
+function updStrip(){
+  if(!game)return;
+  const my=game.turn===1;
+  const st=document.getElementById('s-turn');
+  st.textContent=my?'●':'○';
+  st.className='s-turn'+(my?'':' ai');
+  document.getElementById('s-lv').textContent='LV '+selLv;
+  if(lnbOpen)syncLNB();
+}
+
+function startGame(){
+  game=new GoGame(selSz);
+  curR=Math.floor(selSz/2);curC=Math.floor(selSz/2);
+  document.getElementById('s-lv').textContent='LV '+selLv;
+  go('gs');
+}
+
+/* 보드 크기 계산 — Galaxy A34 19.5:9 기준
+   CSS 가로 851, 세로 393 (DPR 2.75)
+   토글 48px → 남은 803px
+   보드 = 393px (100vh - 8px padding)
+   D-PAD = 803 - 393 - 6px gap = 404px           */
+function fitBoard(){
+  const h=window.innerHeight;
+  const boardSz=h-8;   /* 상하 4px 패딩 */
+  BC.width=boardSz;BC.height=boardSz;
+  document.getElementById('board-col').style.width=(boardSz+6)+'px';
+  drawGame();updCursor();
+}
+
+/* ────── 바둑판 그리기 ────── */
+function drawGame(){
+  if(!game)return;
+  const lp=game.log.length?game.log[game.log.length-1].pos:-1;
+  drawBoard(BC,game.board,game.sz,lp,curR*game.sz+curC);
+}
+function drawBoard(cv,board,sz,lp,cur){
+  const ctx=cv.getContext('2d');
+  const W=cv.width,pad=W*.052,step=(W-2*pad)/(sz-1);
+  /* 바탕 */
+  ctx.fillStyle='#C9912A';ctx.fillRect(0,0,W,W);
+  ctx.fillStyle='#D4A843';ctx.fillRect(2,2,W-4,W-4);
+  /* 선 */
+  ctx.strokeStyle='#5A3A0A';ctx.lineWidth=Math.max(1,step*.04);
+  for(let i=0;i<sz;i++){
+    const x=pad+i*step,y=pad+i*step;
+    ctx.beginPath();ctx.moveTo(x,pad);ctx.lineTo(x,pad+(sz-1)*step);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(pad+(sz-1)*step,y);ctx.stroke();
+  }
+  ctx.strokeStyle='#3A2005';ctx.lineWidth=Math.max(2,step*.07);ctx.strokeRect(pad,pad,(sz-1)*step,(sz-1)*step);
+  /* 화점 */
+  ctx.fillStyle='#3A2005';
+  for(const[r,c]of stars(sz)){ctx.beginPath();ctx.arc(pad+c*step,pad+r*step,step*.1,0,6.283);ctx.fill();}
+  /* 돌 */
+  const sr=step*.46;
+  for(let i=0;i<board.length;i++){if(!board[i])continue;const r=i/sz|0,c=i%sz;drawStone(ctx,pad+c*step,pad+r*step,sr,board[i],i===lp);}
+  /* 커서 */
+  if(cur!=null&&cur>=0&&!board[cur]){
+    const r=cur/sz|0,c=cur%sz,x=pad+c*step,y=pad+r*step,hs=sr*.84;
+    ctx.strokeStyle='rgba(220,20,20,.95)';ctx.lineWidth=Math.max(2,step*.07);
+    ctx.beginPath();ctx.moveTo(x-hs,y);ctx.lineTo(x+hs,y);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x,y-hs);ctx.lineTo(x,y+hs);ctx.stroke();
+    ctx.globalAlpha=.22;ctx.fillStyle='#111';ctx.beginPath();ctx.arc(x,y,sr,0,6.283);ctx.fill();ctx.globalAlpha=1;
+  }
+}
+function drawStone(ctx,x,y,r,col,last){
+  ctx.shadowColor='rgba(0,0,0,.42)';ctx.shadowBlur=r*.55;ctx.shadowOffsetX=r*.1;ctx.shadowOffsetY=r*.17;
+  if(col===1){const g=ctx.createRadialGradient(x-r*.3,y-r*.3,r*.08,x,y,r);g.addColorStop(0,'#606060');g.addColorStop(1,'#0c0c0c');ctx.fillStyle=g;}
+  else{const g=ctx.createRadialGradient(x-r*.3,y-r*.3,r*.08,x,y,r);g.addColorStop(0,'#ffffff');g.addColorStop(1,'#cccccc');ctx.fillStyle=g;}
+  ctx.beginPath();ctx.arc(x,y,r,0,6.283);ctx.fill();
+  ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetX=0;ctx.shadowOffsetY=0;
+  if(last){ctx.fillStyle=col===1?'rgba(255,255,255,.7)':'rgba(0,0,0,.45)';ctx.beginPath();ctx.arc(x,y,r*.26,0,6.283);ctx.fill();}
+}
+function stars(sz){
+  if(sz===19)return[[3,3],[3,9],[3,15],[9,3],[9,9],[9,15],[15,3],[15,9],[15,15]];
+  if(sz===13)return[[3,3],[3,6],[3,9],[6,3],[6,6],[6,9],[9,3],[9,6],[9,9]];
+  return[[2,2],[2,4],[2,6],[4,2],[4,4],[4,6],[6,2],[6,4],[6,6]];
+}
+
+/* ────── 게임 액션 ────── */
+function aiTurn(){if(!game||game.over)return;const p=aiMove(game,2,selLv);game.move(p);drawGame();updStrip();if(game.over)endGame();}
+function doPass(){if(!game||game.over)return;game.move(-1);drawGame();updStrip();if(game.over){endGame();return;}setTimeout(aiTurn,380);}
+function doResign(){if(!game)return;game.over=true;game.resign=true;endGame();}
+function doUndo(){
+  if(!game||game.log.length<2)return;
+  game.log.pop();game.log.pop();
+  const h=game.log[game.log.length-1];
+  game.board=h?new Int8Array(h.board):new Int8Array(game.n);
+  game.ko=h?h.ko:-1;game.passes=0;game.over=false;game.turn=1;
+  drawGame();updStrip();
+}
+function endGame(){
+  const sc=game.score();
+  const save={id:Date.now(),date:new Date().toLocaleDateString('ko-KR'),sz:game.sz,lv:selLv,moves:game.log.map(l=>l.pos),resign:!!game.resign};
+  const saves=loadSaves();saves.unshift(save);if(saves.length>30)saves.pop();localStorage.setItem('baduk_saves',JSON.stringify(saves));curSave=save;
+  go('result-screen');
+  if(game.resign){document.getElementById('rwin').textContent='AI 승 (불계패)';document.getElementById('rwin').style.color='#888';document.getElementById('rscore').textContent='포기로 종료';}
+  else{document.getElementById('rwin').textContent=sc.bw?'내가 이겼습니다 🎉':'AI가 이겼습니다';document.getElementById('rwin').style.color=sc.bw?'#FFD700':'#888';document.getElementById('rscore').textContent=`흑 ${sc.b}집 : 백 ${sc.w}집 (덤 6.5)`;}
+}
+
+/* ────── 기보 ────── */
+function loadSaves(){try{return JSON.parse(localStorage.getItem('baduk_saves')||'[]');}catch{return[];}}
+function renderRecs(){
+  const list=document.getElementById('recs-list');const saves=loadSaves();
+  if(!saves.length){list.innerHTML='<div style="font-size:clamp(.85rem,2.1vh,1.3rem);color:#3a3a3a;text-align:center;margin:auto;">저장된 대국이 없습니다</div>';return;}
+  list.innerHTML='';
+  saves.forEach(s=>{const d=document.createElement('div');d.className='recitem';d.innerHTML=`<div><div class="recto">${s.date} — ${s.sz}×${s.sz}판</div><div class="recsu">레벨 ${s.lv} · ${s.moves.length}수 · ${s.resign?'불계':'집계'}</div></div><div class="recar">▶</div>`;d.onclick=()=>startReplay(s);list.appendChild(d);});
+}
+
+/* ────── 복기 ────── */
+let repSave=null,repStep=0;
+function viewReplay(){if(curSave)startReplay(curSave);else go('records-screen');}
+function fitReplay(){const av=Math.min(window.innerHeight-10,window.innerWidth*.45-10,460);RC.width=RC.height=Math.max(av,120);}
+function startReplay(s){repSave=s;repStep=0;go('replay-screen');drawRep();}
+function replayBoard(step){const g=new GoGame(repSave.sz);for(let i=0;i<step;i++){const p=repSave.moves[i];g.move(p===undefined?-1:p);}return{board:g.board,last:step>0?repSave.moves[step-1]:-1};}
+function drawRep(){const{board,last}=replayBoard(repStep);drawBoard(RC,board,repSave.sz,last>=0?last:-1,null);document.getElementById('movcnt').textContent=`${repStep} / ${repSave.moves.length} 수`;}
+function rFirst(){repStep=0;drawRep();}
+function rPrev(){if(repStep>0){repStep--;drawRep();}}
+function rNext(){if(repStep<repSave.moves.length){repStep++;drawRep();}}
+function rLast(){repStep=repSave.moves.length;drawRep();}
+
+window.addEventListener('resize',()=>{if(document.getElementById('gs').classList.contains('on')&&game)fitBoard();});
+</script>
+</body>
+</html>
