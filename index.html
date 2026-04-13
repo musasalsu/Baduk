@@ -894,7 +894,7 @@ function requestAIMove(game, col, lv){
    KataGo TF.js — GitHub Pages 호스팅
    musasalsu.github.io/Baduk/model/
 ══════════════════════════════════════ */
-const TFJS_SRC = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js';
+const TFJS_SRC = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js';
 const KATA_URL = 'https://musasalsu.github.io/Baduk/model/model.json';
 
 let kataModel = null;
@@ -957,7 +957,9 @@ async function initKataGo(){
   }catch(e){
     console.error('[KataGo] 실패:',e.message);
     kataState='failed';
-    showKataBanner('🔧 MCTS 모드','#555');
+    /* 에러 내용을 배너에 표시 (진단용) */
+    const msg = e.message.length>40 ? e.message.slice(0,40)+'...' : e.message;
+    showKataBanner('❌ '+msg,'#8B0000');
     updKataIndicator();
   }
 }
